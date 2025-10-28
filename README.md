@@ -1,200 +1,337 @@
-# Express.js Error Handling with Try-Catch
+# ElProject Server-Side API
 
-This project demonstrates comprehensive error handling in Express.js using try-catch blocks, custom error classes, and middleware.
+A comprehensive Node.js/Express.js REST API with real-time capabilities powered by Socket.IO, featuring JWT authentication, sentiment analysis, messaging, and audio uploads.
 
-## Key Error Handling Concepts
+## 🚀 Features
 
-### 1. Try-Catch Blocks
-Every route handler is wrapped in try-catch blocks to handle synchronous and asynchronous errors:
+- **JWT-Based Authentication** - Secure user registration, login, and profile management
+- **Real-Time Chat** - Live messaging with Socket.IO
+- **Audio Messaging** - Upload and share audio messages
+- **Sentiment Analysis** - AI-powered text sentiment analysis
+- **User Management** - Complete CRUD operations for user accounts
+- **MongoDB Integration** - Persistent data storage with Mongoose
+- **Error Handling** - Comprehensive error handling middleware
+- **File Uploads** - Audio file handling with Multer
+
+## 📁 Project Structure
+
+```
+server-side/
+├── app.js                      # Main application entry point
+├── package.json                # Dependencies and scripts
+├── .gitignore                  # Git ignore configuration
+├── config/
+│   ├── database.js            # MongoDB connection configuration
+│   └── audioStorage.js        # Multer configuration for audio uploads
+├── controllers/
+│   ├── authController.js      # Authentication logic
+│   ├── sentimentController.js # Sentiment analysis logic
+│   └── userController.js      # User management logic
+├── middleware/
+│   └── auth.js                # JWT authentication middleware
+├── models/
+│   ├── User.js                # User Mongoose schema
+│   └── Message.js             # Message Mongoose schema
+├── routes/
+│   ├── auth.js                # Authentication routes
+│   ├── sentiment.js           # Sentiment analysis routes
+│   ├── users.js               # User management routes
+│   ├── chat.js                # Chat and messaging routes
+│   └── audio.js               # Audio upload routes
+├── utils/
+│   └── authUtils.js           # JWT utility functions
+└── uploads/
+    └── audio/                 # Storage for uploaded audio files
+```
+
+## 🛠️ Technologies
+
+- **Express.js** - Web application framework
+- **Socket.IO** - Real-time bidirectional communication
+- **MongoDB & Mongoose** - Database and ODM
+- **JWT** - JSON Web Tokens for authentication
+- **bcryptjs** - Password hashing
+- **Multer** - File upload handling
+- **Axios** - HTTP client for external API calls
+- **CORS** - Cross-origin resource sharing
+- **dotenv** - Environment variable management
+
+## 📋 Prerequisites
+
+- Node.js (v14 or higher)
+- MongoDB (local installation or cloud instance)
+- Python Flask server (for sentiment analysis) - see python-server-side directory
+
+## ⚙️ Installation
+
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/drfawzyofficial/server-side-new.git
+   cd server-side
+   ```
+
+2. **Install dependencies**
+   ```bash
+   npm install
+   ```
+
+3. **Environment Configuration**
+
+   Create a `.env` file in the root directory with the following variables:
+   ```env
+   # Server Configuration
+   PORT=3000
+   HOST=localhost
+   NODE_ENV=development
+
+   # MongoDB Configuration
+   MONGODB_URI=mongodb://localhost:27017/elproject
+
+   # JWT Configuration
+   JWT_SECRET=your-super-secret-jwt-key-here
+   JWT_EXPIRES_IN=7d
+
+   # Flask AI Server (for sentiment analysis)
+   FLASK_SERVER_URL=http://localhost:5000
+   ```
+
+4. **Start the server**
+   ```bash
+   npm start
+   # or for development with auto-restart:
+   npm run dev
+   ```
+
+## 📡 API Endpoints
+
+### Authentication (`/auth`)
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|---------------|
+| POST | `/auth/signup` | Register a new user | No |
+| POST | `/auth/login` | Login and get JWT token | No |
+| POST | `/auth/logout` | Logout user | Yes |
+| GET | `/auth/me` | Get current user profile | Yes |
+| PUT | `/auth/profile` | Update user profile | Yes |
+
+### User Management (`/users`)
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|---------------|
+| GET | `/users` | Get all users | Yes |
+| GET | `/users/:id` | Get user by ID | Yes |
+| PUT | `/users/:id` | Update user | Yes |
+| DELETE | `/users/:id` | Delete user | Yes |
+
+### Sentiment Analysis (`/`)
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|---------------|
+| POST | `/analyze` | Analyze single text sentiment | Yes |
+| POST | `/analyze-batch` | Analyze multiple texts | Yes |
+
+### Chat & Messaging (`/api`)
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|---------------|
+| GET | `/api/messages` | Get all messages | Yes |
+| POST | `/api/messages` | Send a text message | Yes |
+| DELETE | `/api/messages/:id` | Delete a message | Yes |
+| GET | `/api/users/online` | Get online users | Yes |
+
+### Audio Upload (`/`)
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|---------------|
+| POST | `/upload-audio` | Upload audio message | Yes |
+| GET | `/uploads/audio/:filename` | Download audio file | No |
+
+### Health Check
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|---------------|
+| GET | `/health` | Server health status | No |
+
+## 🔐 Authentication
+
+The API uses JWT (JSON Web Tokens) for authentication. Include the token in the Authorization header:
+
+```
+Authorization: Bearer <your-jwt-token>
+```
+
+### Example: User Registration
+
+```bash
+curl -X POST http://localhost:3000/auth/signup \
+  -H "Content-Type: application/json" \
+  -d '{
+    "fullname": "John Doe",
+    "email": "john@example.com",
+    "password": "password123"
+  }'
+```
+
+### Example: Login
+
+```bash
+curl -X POST http://localhost:3000/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "john@example.com",
+    "password": "password123"
+  }'
+```
+
+## 💬 Real-Time Chat (Socket.IO)
+
+The server implements Socket.IO for real-time messaging. To connect:
 
 ```javascript
-app.get('/users/:id', async (req, res) => {
-  try {
-    // Your code here
-    const result = await someAsyncOperation();
-    res.json(result);
-  } catch (error) {
-    // Handle the error
-    console.error('Error:', error);
-    res.status(500).json({ error: 'Something went wrong' });
+const io = require('socket.io-client');
+const socket = io('http://localhost:3000', {
+  auth: {
+    token: 'your-jwt-token'
   }
+});
+
+socket.on('receiveMessage', (message) => {
+  console.log('New message:', message);
+});
+
+socket.emit('sendMessage', {
+  content: 'Hello, everyone!'
 });
 ```
 
-### 2. Custom Error Classes
-We define custom error classes for different types of errors:
+## 🎤 Audio Messages
 
-```javascript
-class ValidationError extends Error {
-  constructor(message, field) {
-    super(message);
-    this.name = 'ValidationError';
-    this.field = field;
-    this.statusCode = 400;
-  }
-}
+Upload audio files using multipart/form-data:
 
-class NotFoundError extends Error {
-  constructor(resource) {
-    super(`${resource} not found`);
-    this.name = 'NotFoundError';
-    this.statusCode = 404;
-  }
-}
-
-class DatabaseError extends Error {
-  constructor(message) {
-    super(message);
-    this.name = 'DatabaseError';
-    this.statusCode = 500;
-  }
-}
+```bash
+curl -X POST http://localhost:3000/upload-audio \
+  -H "Authorization: Bearer <your-token>" \
+  -F "audio=@audio-file.mp3" \
+  -F "duration=5.5"
 ```
 
-### 3. Error Type Checking
-Use `instanceof` to check error types and respond appropriately:
+## 🧠 Sentiment Analysis
 
-```javascript
-catch (error) {
-  if (error instanceof ValidationError) {
-    res.status(error.statusCode).json({
-      success: false,
-      error: 'Validation Error',
-      message: error.message,
-      field: error.field
-    });
-  } else if (error instanceof NotFoundError) {
-    res.status(error.statusCode).json({
-      success: false,
-      error: 'Not Found',
-      message: error.message
-    });
-  } else {
-    res.status(500).json({
-      success: false,
-      error: 'Internal Server Error',
-      message: 'Something went wrong'
-    });
-  }
-}
+Analyze text sentiment using the integrated Python Flask AI server:
+
+```bash
+curl -X POST http://localhost:3000/analyze \
+  -H "Authorization: Bearer <your-token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "I am feeling great today!"
+  }'
 ```
 
-### 4. Global Error Handling Middleware
-A global error handler catches any unhandled errors:
+## 📊 Database Models
 
-```javascript
-app.use((error, req, res, next) => {
-  console.error('Unhandled error:', error);
-  
-  const statusCode = error.statusCode || 500;
-  const message = error.message || 'Internal Server Error';
-  
-  res.status(statusCode).json({
-    success: false,
-    error: error.name || 'Error',
-    message: message,
-    ...(process.env.NODE_ENV === 'development' && { stack: error.stack })
-  });
-});
-```
+### User Schema
+- `fullname` (String, required)
+- `email` (String, required, unique)
+- `password` (String, required, hashed)
+- `createdAt` (Date)
+- `updatedAt` (Date)
+- `lastLogin` (Date)
+- `isActive` (Boolean)
 
-### 5. 404 Handler
-Handle routes that don't exist:
+### Message Schema
+- `sender` (ObjectId, references User)
+- `senderName` (String)
+- `content` (String)
+- `messageType` (String: 'text' or 'audio')
+- `audioFile` (Object, for audio messages)
+- `timestamp` (Date)
 
-```javascript
-app.use((req, res) => {
-  res.status(404).json({
-    success: false,
-    error: 'Not Found',
-    message: `Route ${req.method} ${req.originalUrl} not found`
-  });
-});
-```
+## 🛡️ Error Handling
 
-## API Endpoints
-
-### Users
-- `GET /users` - Get all users
-- `POST /users` - Create new user
-- `GET /users/:id` - Get user by ID
-- `PUT /users/:id` - Update user
-- `DELETE /users/:id` - Delete user
-
-### Posts
-- `GET /posts` - Get all posts
-- `POST /posts` - Create new post
-
-### Error Testing
-- `GET /error` - Test synchronous error handling
-- `GET /async-error` - Test asynchronous error handling
-
-## Error Response Format
-
-All error responses follow a consistent format:
+The API provides comprehensive error handling with consistent error responses:
 
 ```json
 {
   "success": false,
   "error": "Error Type",
-  "message": "Human-readable error message",
-  "field": "fieldName" // Only for validation errors
+  "message": "Human-readable error message"
 }
 ```
 
-## Running the Application
-
-1. Install dependencies:
-```bash
-npm install
-```
-
-2. Start the server:
-```bash
-npm start
-# or for development with auto-restart:
-npm run dev
-```
-
-3. Visit `http://localhost:3000` to see the API documentation
-
-## Testing Error Handling
-
-### Test Validation Errors
-```bash
-# Invalid user data
-curl -X POST http://localhost:3000/users \
-  -H "Content-Type: application/json" \
-  -d '{"name": "A", "email": "invalid-email"}'
-```
-
-### Test Not Found Errors
-```bash
-# Non-existent user
-curl http://localhost:3000/users/999
-```
-
-### Test Database Errors
-The application simulates random database errors (10% chance) to demonstrate error handling.
-
-## Best Practices Demonstrated
-
-1. **Always use try-catch** in async route handlers
-2. **Create custom error classes** for different error types
-3. **Use consistent error response format**
-4. **Log errors** for debugging
-5. **Handle different error types** appropriately
-6. **Provide meaningful error messages** to clients
-7. **Use global error handling middleware** as a safety net
-8. **Validate input data** before processing
-9. **Check for resource existence** before operations
-10. **Use appropriate HTTP status codes**
-
-## Error Types Handled
+### Error Types
 
 - **ValidationError** (400) - Invalid input data
+- **AuthenticationError** (401) - Invalid or missing token
+- **AuthorizationError** (403) - Insufficient permissions
 - **NotFoundError** (404) - Resource not found
-- **DatabaseError** (500) - Database operation failures
-- **Generic Error** (500) - Unexpected errors
+- **ServerError** (500) - Internal server error
 
-This implementation provides a robust foundation for error handling in Express.js applications.
+## 🧪 Testing with Postman
 
+Import the provided Postman collection:
+```
+ElProject_JWT_API.postman_collection.json
+```
+
+## 📝 Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `PORT` | Server port | 3000 |
+| `HOST` | Server host | localhost |
+| `NODE_ENV` | Environment mode | development |
+| `MONGODB_URI` | MongoDB connection string | - |
+| `JWT_SECRET` | Secret key for JWT | - |
+| `JWT_EXPIRES_IN` | JWT expiration time | 7d |
+| `FLASK_SERVER_URL` | Flask AI server URL | http://localhost:5000 |
+
+## 🚨 Important Notes
+
+1. **Never commit `.env` files** - Keep your environment variables secure
+2. **Change JWT_SECRET** - Use a strong, unique secret in production
+3. **Enable HTTPS** - Always use HTTPS in production environments
+4. **Rate Limiting** - Consider implementing rate limiting for production
+5. **CORS Configuration** - Update CORS settings for production domains
+
+## 📦 Dependencies
+
+### Production
+- `express` - Web framework
+- `socket.io` - Real-time communication
+- `mongoose` - MongoDB ODM
+- `jsonwebtoken` - JWT handling
+- `bcryptjs` - Password hashing
+- `multer` - File uploads
+- `axios` - HTTP client
+- `cors` - CORS middleware
+- `dotenv` - Environment variables
+
+### Development
+- `nodemon` - Auto-restart server
+- `webpack` - Module bundling
+- `babel` - JavaScript transpiler
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
+
+## 📄 License
+
+This project is part of the ElProject application suite.
+
+## 👤 Author
+
+**Abdulrahman Fawzy**
+- Email: abdulrahmanfawzy999@gmail.com
+- GitHub: [@drfawzyofficial](https://github.com/drfawzyofficial)
+
+## 🙏 Acknowledgments
+
+- Express.js community
+- Socket.IO documentation
+- MongoDB and Mongoose teams
