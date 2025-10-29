@@ -10,7 +10,6 @@ const generateJWTToken = (userId, userData) => {
   const payload = {
     userId: userId,
     email: userData.email,
-    role: userData.role,
     fullname: userData.fullname
   };
   

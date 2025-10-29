@@ -1,23 +1,31 @@
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const ffmpeg = require('fluent-ffmpeg');
+const ffmpegPath = require('ffmpeg-static');
 
-// Ensure uploads directory exists
+ffmpeg.setFfmpegPath(ffmpegPath);
+
+// Ensure uploads directories exist
 const uploadsDir = path.join(__dirname, '..', 'uploads', 'audio');
+const tmpDir = path.join(__dirname, '..', 'uploads', 'tmp');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
+if (!fs.existsSync(tmpDir)) {
+  fs.mkdirSync(tmpDir, { recursive: true });
+}
 
-// Configure multer for audio file uploads
+// Configure multer to write raw upload to temp directory first
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    cb(null, uploadsDir);
+    cb(null, tmpDir);
   },
   filename: function (req, file, cb) {
-    // Generate unique filename with timestamp
+    // Generate temp filename with timestamp
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const extension = path.extname(file.originalname);
-    cb(null, `audio-${uniqueSuffix}${extension}`);
+    const extension = path.extname(file.originalname) || '.bin';
+    cb(null, `upload-${uniqueSuffix}${extension}`);
   }
 });
 
@@ -50,8 +58,46 @@ const upload = multer({
   }
 });
 
-// Middleware for single audio file upload
-const uploadAudio = upload.single('audio');
+// Transcode/compress to WebM (Opus), 64 kbps, mono, 48 kHz
+const processAudio = async (req, res, next) => {
+  try {
+    if (!req.file) return next();
+
+    const inPath = req.file.path;
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const outName = `audio-${uniqueSuffix}.webm`;
+    const outPath = path.join(uploadsDir, outName);
+
+    await new Promise((resolve, reject) => {
+      ffmpeg(inPath)
+        .audioCodec('libopus')
+        .audioBitrate('64k')
+        .audioChannels(1)
+        .audioFrequency(48000)
+        .format('webm')
+        .on('error', reject)
+        .on('end', resolve)
+        .save(outPath);
+    });
+
+    // Replace multer file metadata to point to compressed output
+    try { fs.unlinkSync(inPath); } catch {}
+    req.file.mimetype = 'audio/webm';
+    req.file.size = fs.statSync(outPath).size;
+    req.file.filename = outName;
+    req.file.path = outPath;
+
+    next();
+  } catch (err) {
+    if (req.file?.path && fs.existsSync(req.file.path)) {
+      try { fs.unlinkSync(req.file.path); } catch {}
+    }
+    next(err);
+  }
+};
+
+// Middleware for single audio file upload (temp save + compression)
+const uploadAudio = [upload.single('audio'), processAudio];
 
 // Helper function to get audio file URL
 const getAudioUrl = (filename) => {

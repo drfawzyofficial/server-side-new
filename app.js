@@ -1,73 +1,196 @@
+/**
+ * Express Application Entry Point
+ * Main application file with organized middleware and route configuration
+ */
+
 // Load environment variables first
 require('dotenv').config();
 
+// Core dependencies
 const express = require('express');
 const cors = require('cors');
-const path = require('path');
 const http = require('http');
 const socketIo = require('socket.io');
-const { connectDB } = require('./config/database');
 
-// Import individual route files
+// Configuration
+const config = require('./config/app.config');
+const { connectDB, disconnectDB, checkHealth: checkDBHealth } = require('./config/database');
+const { validateEnv } = require('./utils/validateEnv');
+
+// Performance and security middleware
+const compression = require('compression');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+const morgan = require('morgan');
+const responseTime = require('response-time');
+const { sanitize: mongoSanitizeObject } = require('express-mongo-sanitize');
+const hpp = require('hpp');
+const cookieParser = require('cookie-parser');
+
+// Socket.IO setup
+const { socketAuthMiddleware } = require('./socket/auth');
+const { handleConnection } = require('./socket/handlers');
+
+// Route imports
 const authRoutes = require('./routes/auth');
-const sentimentRoutes = require('./routes/sentiment');
-const userRoutes = require('./routes/users');
 const chatRoutes = require('./routes/chat');
 const audioRoutes = require('./routes/audio');
+const friendRoutes = require('./routes/friends');
+const privateMessageRoutes = require('./routes/privateMessages');
 
+// Validate environment variables
+validateEnv();
+
+// Initialize Express app and HTTP server
 const app = express();
 const server = http.createServer(app);
 
-// Initialize Socket.IO
-const io = socketIo(server, {
-  cors: {
-    origin: ['http://localhost:3001', 'http://localhost:3000', 'file://'],
-    methods: ['GET', 'POST'],
-    credentials: true
-  }
-});
+// Initialize Socket.IO with configuration
+const io = socketIo(server, config.socketIO);
 
 // Connect to MongoDB
 connectDB();
 
-// Middleware
-app.use(cors({
-  origin: ['http://localhost:3001', 'http://localhost:3000', 'file://'],
-  credentials: true
+// ============================================================================
+// MIDDLEWARE CONFIGURATION
+// ============================================================================
+
+// Performance: Gzip compression for responses
+app.use(compression({
+  filter: config.compression.filter,
+  level: config.compression.level
 }));
 
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+// Security: HTTP headers protection
+app.use(helmet(config.security.helmet));
 
-// Serve static files from public directory
+// Performance: Response time tracking
+app.use(responseTime((req, res, time) => {
+  if (config.server.env !== 'production') {
+    console.log(`${req.method} ${req.url} - ${time.toFixed(2)}ms`);
+  }
+}));
+
+// Logging: HTTP request logger
+app.use(morgan(config.server.env === 'production' ? 'combined' : 'dev'));
+
+// Security: General rate limiting
+const limiter = rateLimit(config.rateLimit.general);
+app.use(limiter);
+
+// Security: Stricter rate limit for auth routes
+const authLimiter = rateLimit(config.rateLimit.auth);
+
+// CORS: Cross-Origin Resource Sharing
+app.use(cors(config.cors));
+
+// Body parsing: JSON and URL-encoded with size limits
+app.use(express.json({ 
+  limit: config.bodyParser.limit,
+  verify: (req, res, buf) => {
+    req.rawBody = buf; // Store raw body for webhook verification if needed
+  }
+}));
+app.use(express.urlencoded({ 
+  extended: true, 
+  limit: config.bodyParser.limit 
+}));
+
+// Security: Cookie parser for secure cookie handling
+app.use(cookieParser(config.cookie.secret));
+
+// Security: NoSQL injection prevention (Express 5 compatible)
+app.use((req, res, next) => {
+  try {
+    // Sanitize request body
+    if (req.body) {
+      req.body = mongoSanitizeObject(req.body, {
+        replaceWith: config.mongoSanitize.replaceWith,
+        onSanitize: ({ key }) => {
+          console.warn(`NoSQL injection attempt blocked in body: ${key} (${req.path})`);
+        }
+      });
+    }
+    
+    // Sanitize request params
+    if (req.params) {
+      req.params = mongoSanitizeObject(req.params, {
+        replaceWith: config.mongoSanitize.replaceWith,
+        onSanitize: ({ key }) => {
+          console.warn(`NoSQL injection attempt blocked in params: ${key} (${req.path})`);
+        }
+      });
+    }
+    
+    // Skip req.query (getter-only in Express 5)
+    next();
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Security: HTTP Parameter Pollution prevention
+app.use(hpp(config.security.hpp));
+
+// Static files: Serve public directory
 app.use(express.static('public'));
 
-// Request logging middleware
-app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
-  next();
+// ============================================================================
+// ROUTES
+// ============================================================================
+
+// Health check endpoint with database status
+app.get('/health', async (req, res) => {
+  try {
+    const dbHealth = await checkDBHealth();
+    const serverHealth = {
+      status: dbHealth.status === 'healthy' ? 'healthy' : 'degraded',
+      server: {
+        running: true,
+        environment: config.server.env,
+        uptime: Math.floor(process.uptime()),
+        memory: {
+          used: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
+          total: Math.round(process.memoryUsage().heapTotal / 1024 / 1024),
+          unit: 'MB'
+        }
+      },
+      database: dbHealth,
+      timestamp: new Date().toISOString()
+    };
+
+    const statusCode = dbHealth.status === 'healthy' ? 200 : 503;
+    res.status(statusCode).json({
+      success: dbHealth.status === 'healthy',
+      ...serverHealth
+    });
+  } catch (error) {
+    res.status(503).json({
+      success: false,
+      status: 'unhealthy',
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
 });
 
-// Health check endpoint
-app.get('/health', (req, res) => {
-  res.json({
-    success: true,
-    message: 'Server is running',
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime()
-  });
-});
+// API Routes
+app.use('/auth', authLimiter, authRoutes);           // Authentication & User management (with strict rate limit)
+app.use('/api', chatRoutes);                         // Chat/messaging
+app.use('/', audioRoutes);                           // Audio uploads
+app.use('/friends', friendRoutes);                   // Friend requests
+app.use('/private-messages', privateMessageRoutes);  // Private messaging
 
-// Mount routes
-app.use('/auth', authRoutes);
-app.use('/', sentimentRoutes); // Sentiment routes (analyze, analyze-batch)
-app.use('/', userRoutes); // User routes (users)
-app.use('/api', chatRoutes); // Chat routes (messages, users/online)
-app.use('/', audioRoutes); // Audio routes (upload-audio, uploads/audio)
+// ============================================================================
+// ERROR HANDLING
+// ============================================================================
 
-// Error handling middleware
+// Global error handler
 app.use((err, req, res, next) => {
-  console.error('Unhandled error:', err);
+  console.error('Unhandled error:', err.message);
+  if (config.server.env !== 'production') {
+    console.error(err.stack);
+  }
   
   // Mongoose validation error
   if (err.name === 'ValidationError') {
@@ -89,15 +212,26 @@ app.use((err, req, res, next) => {
     });
   }
   
+  // JWT errors
+  if (err.name === 'JsonWebTokenError' || err.name === 'TokenExpiredError') {
+    return res.status(401).json({
+      success: false,
+      error: 'Authentication Error',
+      message: 'Invalid or expired token'
+    });
+  }
+  
   // Default error response
   res.status(err.statusCode || 500).json({
     success: false,
     error: err.name || 'Internal Server Error',
-    message: err.message || 'Something went wrong'
+    message: config.server.env === 'production' 
+      ? 'Something went wrong' 
+      : err.message
   });
 });
 
-// 404 handler
+// 404 handler for unmatched routes
 app.use((req, res) => {
   res.status(404).json({
     success: false,
@@ -106,105 +240,82 @@ app.use((req, res) => {
   });
 });
 
-// Socket.IO authentication middleware
-const { verifyJWTToken } = require('./utils/authUtils');
+// ============================================================================
+// SOCKET.IO CONFIGURATION
+// ============================================================================
 
-io.use((socket, next) => {
-  const token = socket.handshake.auth.token || socket.handshake.headers.authorization?.replace('Bearer ', '');
-  
-  if (!token) {
-    return next(new Error('Authentication error: No token provided'));
-  }
-  
-  try {
-    const decoded = verifyJWTToken(token);
-    socket.userId = decoded.userId;
-    socket.user = {
-      fullname: decoded.fullname,
-      email: decoded.email,
-      role: decoded.role
-    };
-    next();
-  } catch (error) {
-    next(new Error('Authentication error: Invalid token'));
-  }
-});
+// Apply authentication middleware
+io.use(socketAuthMiddleware);
 
-// Socket.IO connection handling
-io.on('connection', (socket) => {
-  console.log(`User ${socket.user.fullname} connected with socket ID: ${socket.id}`);
-  
-  // Join user to a general chat room
-  socket.join('general');
-  
-  // Handle new message
-  socket.on('sendMessage', async (data) => {
-    try {
-      console.log('Received message from', socket.user.fullname, ':', data.content);
-      const Message = require('./models/Message');
-      const User = require('./models/User');
-      
-      // Create new message
-      const message = new Message({
-        sender: socket.userId,
-        senderName: socket.user.fullname,
-        content: data.content
-      });
-      
-      await message.save();
-      console.log('Message saved to database:', message._id);
-      
-      // Broadcast message to all connected users
-      io.to('general').emit('receiveMessage', {
-        id: message._id,
-        sender: socket.userId,
-        senderName: socket.user.fullname,
-        content: message.content,
-        messageType: message.messageType,
-        timestamp: message.timestamp
-      });
-      
-    } catch (error) {
-      console.error('Error sending message:', error);
-      socket.emit('error', { message: 'Failed to send message' });
-    }
-  });
-  
-  // Handle disconnect
-  socket.on('disconnect', () => {
-    console.log(`User ${socket.user.fullname} disconnected`);
-  });
-});
+// Handle socket connections
+io.on('connection', (socket) => handleConnection(socket, io));
 
-// Make io available to routes
+// Make Socket.IO instance available to routes
 app.set('io', io);
 
-// Start server
-const PORT = process.env.PORT || 3000;
-const HOST = process.env.HOST || 'localhost';
+// ============================================================================
+// SERVER STARTUP
+// ============================================================================
 
-server.listen(PORT, HOST, () => {
-  console.log(`🚀 Server running on http://${HOST}:${PORT}`);
-  console.log(`📚 Error handling examples available at:`);
-  console.log(`   - http://${HOST}:${PORT}/error`);
-  console.log(`   - http://${HOST}:${PORT}/async-error`);
+server.listen(config.server.port, config.server.host, () => {
+  console.log('');
+  console.log('═══════════════════════════════════════════════════════════');
+  console.log('Server successfully started');
+  console.log('═══════════════════════════════════════════════════════════');
+  console.log(`URL:         http://${config.server.host}:${config.server.port}`);
+  console.log(`Environment: ${config.server.env}`);
+  console.log(`Started at:  ${new Date().toISOString()}`);
+  console.log('═══════════════════════════════════════════════════════════');
+  console.log('');
+});
+
+// Graceful shutdown handler
+process.on('SIGTERM', async () => {
+  console.log('');
+  console.log('SIGTERM received. Performing graceful shutdown...');
   
-  // Display environment variables (masked)
-  console.log(`🔧 Environment Configuration:`);
-  console.log(`==================================================`);
-  console.log(`📡 Server Configuration:`);
-  console.log(`   PORT: ${PORT}`);
-  console.log(`   HOST: ${HOST}`);
-  console.log(`   NODE_ENV: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`🔐 Security Variables:`);
-  console.log(`   JWT_SECRET: ${process.env.JWT_SECRET ? '***' + process.env.JWT_SECRET.slice(-4) : 'Not set'}`);
-  console.log(`   JWT_EXPIRES_IN: ${process.env.JWT_EXPIRES_IN || 'Not set'}`);
-  console.log(`🗄️  Database Configuration:`);
-  console.log(`   MONGODB_URI: ${process.env.MONGODB_URI ? process.env.MONGODB_URI.replace(/\/\/([^:]+):([^@]+)@/, '//***:***@') : 'Not set'}`);
-  console.log(`🤖 Flask AI Server:`);
-  console.log(`   FLASK_SERVER_URL: ${process.env.FLASK_SERVER_URL || 'Not set'}`);
-  console.log(`==================================================`);
-  console.log(`✅ Server initialized successfully!`);
+  server.close(async () => {
+    console.log('HTTP server closed');
+    
+    try {
+      await disconnectDB();
+      console.log('Graceful shutdown completed');
+      process.exit(0);
+    } catch (error) {
+      console.error('Error during shutdown:', error.message);
+      process.exit(1);
+    }
+  });
+
+  // Force close after 30 seconds
+  setTimeout(() => {
+    console.error('Forced shutdown after timeout');
+    process.exit(1);
+  }, 30000);
+});
+
+process.on('SIGINT', async () => {
+  console.log('');
+  console.log('SIGINT received. Performing graceful shutdown...');
+  
+  server.close(async () => {
+    console.log('HTTP server closed');
+    
+    try {
+      await disconnectDB();
+      console.log('Graceful shutdown completed');
+      process.exit(0);
+    } catch (error) {
+      console.error('Error during shutdown:', error.message);
+      process.exit(1);
+    }
+  });
+
+  // Force close after 30 seconds
+  setTimeout(() => {
+    console.error('Forced shutdown after timeout');
+    process.exit(1);
+  }, 30000);
 });
 
 module.exports = app;

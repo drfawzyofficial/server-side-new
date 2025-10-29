@@ -1,13 +1,12 @@
 # ElProject Server-Side API
 
-A comprehensive Node.js/Express.js REST API with real-time capabilities powered by Socket.IO, featuring JWT authentication, sentiment analysis, messaging, and audio uploads.
+A comprehensive Node.js/Express.js REST API with real-time capabilities powered by Socket.IO, featuring JWT authentication, messaging, and audio uploads.
 
 ## 🚀 Features
 
 - **JWT-Based Authentication** - Secure user registration, login, and profile management
 - **Real-Time Chat** - Live messaging with Socket.IO
 - **Audio Messaging** - Upload and share audio messages
-- **Sentiment Analysis** - AI-powered text sentiment analysis
 - **User Management** - Complete CRUD operations for user accounts
 - **MongoDB Integration** - Persistent data storage with Mongoose
 - **Error Handling** - Comprehensive error handling middleware
@@ -25,7 +24,6 @@ server-side/
 │   └── audioStorage.js        # Multer configuration for audio uploads
 ├── controllers/
 │   ├── authController.js      # Authentication logic
-│   ├── sentimentController.js # Sentiment analysis logic
 │   └── userController.js      # User management logic
 ├── middleware/
 │   └── auth.js                # JWT authentication middleware
@@ -34,7 +32,6 @@ server-side/
 │   └── Message.js             # Message Mongoose schema
 ├── routes/
 │   ├── auth.js                # Authentication routes
-│   ├── sentiment.js           # Sentiment analysis routes
 │   ├── users.js               # User management routes
 │   ├── chat.js                # Chat and messaging routes
 │   └── audio.js               # Audio upload routes
@@ -60,7 +57,6 @@ server-side/
 
 - Node.js (v14 or higher)
 - MongoDB (local installation or cloud instance)
-- Python Flask server (for sentiment analysis) - see python-server-side directory
 
 ## ⚙️ Installation
 
@@ -90,9 +86,6 @@ server-side/
    # JWT Configuration
    JWT_SECRET=your-super-secret-jwt-key-here
    JWT_EXPIRES_IN=7d
-
-   # Flask AI Server (for sentiment analysis)
-   FLASK_SERVER_URL=http://localhost:5000
    ```
 
 4. **Start the server**
@@ -122,13 +115,6 @@ server-side/
 | GET | `/users/:id` | Get user by ID | Yes |
 | PUT | `/users/:id` | Update user | Yes |
 | DELETE | `/users/:id` | Delete user | Yes |
-
-### Sentiment Analysis (`/`)
-
-| Method | Endpoint | Description | Auth Required |
-|--------|----------|-------------|---------------|
-| POST | `/analyze` | Analyze single text sentiment | Yes |
-| POST | `/analyze-batch` | Analyze multiple texts | Yes |
 
 ### Chat & Messaging (`/api`)
 
@@ -215,19 +201,6 @@ curl -X POST http://localhost:3000/upload-audio \
   -F "duration=5.5"
 ```
 
-## 🧠 Sentiment Analysis
-
-Analyze text sentiment using the integrated Python Flask AI server:
-
-```bash
-curl -X POST http://localhost:3000/analyze \
-  -H "Authorization: Bearer <your-token>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "text": "I am feeling great today!"
-  }'
-```
-
 ## 📊 Database Models
 
 ### User Schema
@@ -274,6 +247,28 @@ Import the provided Postman collection:
 ElProject_JWT_API.postman_collection.json
 ```
 
+## 🧪 Automated Testing (Jest)
+
+This project includes Jest tests with Supertest and an in-memory MongoDB.
+
+### Install dev dependencies
+
+Run in `server-side/`:
+
+```
+npm install --save-dev jest supertest mongodb-memory-server
+```
+
+### Run tests
+
+```
+npm test            # run tests once
+npm run test:watch  # watch mode
+npm run test:coverage  # coverage report
+```
+
+Test files are under `server-side/tests/` and use `mongodb-memory-server` so no external DB is required.
+
 ## 📝 Environment Variables
 
 | Variable | Description | Default |
@@ -284,7 +279,6 @@ ElProject_JWT_API.postman_collection.json
 | `MONGODB_URI` | MongoDB connection string | - |
 | `JWT_SECRET` | Secret key for JWT | - |
 | `JWT_EXPIRES_IN` | JWT expiration time | 7d |
-| `FLASK_SERVER_URL` | Flask AI server URL | http://localhost:5000 |
 
 ## 🚨 Important Notes
 

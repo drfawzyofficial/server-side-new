@@ -19,8 +19,7 @@ const authenticateUser = (req, res, next) => {
     // Add user info to request object
     req.user = {
       fullname: decoded.fullname,
-      email: decoded.email,
-      role: decoded.role
+      email: decoded.email
     };
     req.userId = decoded.userId;
     
@@ -35,37 +34,6 @@ const authenticateUser = (req, res, next) => {
   }
 };
 
-// Admin authorization middleware
-const requireAdmin = (req, res, next) => {
-  try {
-    if (!req.user) {
-      return res.status(401).json({
-        success: false,
-        error: 'Authentication Error',
-        message: 'User not authenticated'
-      });
-    }
-    
-    if (req.user.role !== 'admin') {
-      return res.status(403).json({
-        success: false,
-        error: 'Authorization Error',
-        message: 'Admin access required'
-      });
-    }
-    
-    next();
-  } catch (error) {
-    console.error('Admin authorization middleware error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Internal Server Error',
-      message: 'Authorization failed'
-    });
-  }
-};
-
 module.exports = {
-  authenticateUser,
-  requireAdmin
+  authenticateUser
 };
