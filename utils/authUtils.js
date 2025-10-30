@@ -2,7 +2,7 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 
 // JWT secret key (should be in environment variables)
-const JWT_SECRET = process.env.JWT_SECRET || 'ccecf8308c32c0cf0680c6d741af1c651984ffc9ffd94672b45aa43e9634';
+const JWT_SECRET = process.env.JWT_SECRET || 'ccecf8308c32c0cf0680c6d741af1c651984ffc9ffd94672b45aa43e96349a95';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '24h';
 
 // Generate JWT token
